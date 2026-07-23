@@ -31,6 +31,17 @@ function portionInMonth(exp, ym){
   if(diff < 0 || diff >= count) return 0;
   return exp.amount / count;
 }
+// Reparte una porción bruta (ya calculada por mes/cuota) entre las personas del gasto.
+// Devuelve la parte que efectivamente es "tuya" (cuenta para tu presupuesto).
+function myShare(exp, grossPortion){
+  const n = exp.splitCount || 1;
+  return grossPortion / n;
+}
+function owedShareTotal(exp){
+  const n = exp.splitCount || 1;
+  if(n <= 1) return 0;
+  return exp.amount * (n - 1) / n;
+}
 
 // ===== Estado =====
 let state = { expenses: [], fixedCosts: [], budgetGoal: 500000 };
@@ -55,8 +66,12 @@ function render(){
   document.getElementById('receipt-month').textContent = monthLabel;
 
   const monthRows = state.expenses
-    .map(e => ({...e, portion: portionInMonth(e, viewYM)}))
-    .filter(e => e.portion > 0)
+    .map(e => {
+      const gross = portionInMonth(e, viewYM);
+      const mine = myShare(e, gross);
+      return {...e, grossPortion: gross, portion: mine, owedPortion: gross - mine};
+    })
+    .filter(e => e.grossPortion > 0)
     .sort((a,b) => new Date(b.date) - new Date(a.date));
 
   const activeFixed = state.fixedCosts.filter(f => f.active);
@@ -90,6 +105,7 @@ function render(){
   renderBarChart();
   renderTransactions(monthRows);
   renderUpcomingCuotas();
+  renderOwed();
 }
 
 function renderPie(monthRows, activeFixed){
@@ -123,7 +139,7 @@ function renderBarChart(){
   const bars = [];
   for(let i=5; i>=0; i--){
     const ym = addMonthsToYM(viewYM, -i);
-    const eTotal = state.expenses.reduce((s,e) => s + portionInMonth(e, ym), 0);
+    const eTotal = state.expenses.reduce((s,e) => s + myShare(e, portionInMonth(e, ym)), 0);
     const fTotal = state.fixedCosts.filter(f=>f.active).reduce((s,f)=>s+f.amount,0);
     const {m} = ymParts(ym);
     bars.push({ym, label: MONTH_NAMES[m-1].slice(0,3), total: eTotal+fTotal});
@@ -152,16 +168,41 @@ function renderTransactions(monthRows){
     const method = METHODS.find(mm => mm.id === e.method) || METHODS[0];
     const idx = monthDiff(ymKey(e.date), viewYM) + 1;
     const cuotasTag = e.cuotas > 1 ? ` · cuota ${idx}/${e.cuotas}` : '';
+    const splitTag = (e.splitCount > 1) ? ` · dividido ×${e.splitCount}${e.owedPortion > 0 ? ' (te deben '+fmtCLP(e.owedPortion)+')' : ''}` : '';
     return `<div class="tx-row" data-id="${e.id}">
       <div class="tx-icon">${method.icon}</div>
       <div class="tx-main">
         <div class="tx-desc">${escapeHtml(e.description || e.category)}</div>
-        <div class="tx-meta"><span style="color:${catColor(e.category)}">${e.category}</span><span>· ${new Date(e.date).toLocaleDateString('es-CL')}</span><span>${cuotasTag}</span></div>
+        <div class="tx-meta"><span style="color:${catColor(e.category)}">${e.category}</span><span>· ${new Date(e.date).toLocaleDateString('es-CL')}</span><span>${cuotasTag}${splitTag}</span></div>
       </div>
       <div class="tx-amount">${fmtCLP(e.portion)}</div>
       <button class="tx-delete" data-delete-expense="${e.id}">🗑</button>
     </div>`;
   }).join('');
+}
+
+function renderOwed(){
+  const pending = state.expenses
+    .filter(e => e.splitCount > 1 && !e.splitSettled)
+    .map(e => ({ id: e.id, desc: e.description || e.category, date: e.date, n: e.splitCount, owed: owedShareTotal(e) }))
+    .sort((a,b) => new Date(b.date) - new Date(a.date));
+
+  const card = document.getElementById('owed-card');
+  if(pending.length === 0){ card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+
+  const total = pending.reduce((s,p) => s + p.owed, 0);
+  document.getElementById('owed-total-amount').textContent = fmtCLP(total);
+
+  document.getElementById('owed-list').innerHTML = pending.map(p => `
+    <div class="cuota-row" data-id="${p.id}" style="align-items:center;">
+      <span>${escapeHtml(p.desc)} · ${new Date(p.date).toLocaleDateString('es-CL')} (÷${p.n})</span>
+      <span style="display:flex;align-items:center;gap:8px;">
+        <b>${fmtCLP(p.owed)}</b>
+        <button class="link-btn" data-mark-paid="${p.id}">Marcar pagado</button>
+      </span>
+    </div>
+  `).join('');
 }
 
 function renderUpcomingCuotas(){
@@ -186,6 +227,15 @@ function renderUpcomingCuotas(){
     return `<div class="cuota-row"><span style="text-transform:capitalize">${MONTH_NAMES[m-1]} ${y} — ${escapeHtml(r.desc)} (${r.index}/${r.count})</span><b>${fmtCLP(r.amount)}</b></div>`;
   }).join('');
 }
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-mark-paid]');
+  if(!btn) return;
+  const id = btn.dataset.markPaid;
+  state.expenses = state.expenses.map(ex => ex.id === id ? {...ex, splitSettled: true} : ex);
+  saveState();
+  render();
+});
 
 function escapeHtml(str){
   const div = document.createElement('div');
@@ -230,6 +280,13 @@ cuotasToggle.addEventListener('click', () => {
   document.getElementById('f-cuotas-count-wrap').classList.toggle('hidden', on);
 });
 
+const splitToggle = document.getElementById('f-split-toggle');
+splitToggle.addEventListener('click', () => {
+  const on = splitToggle.dataset.on === 'true';
+  splitToggle.dataset.on = (!on).toString();
+  document.getElementById('f-split-count-wrap').classList.toggle('hidden', on);
+});
+
 document.getElementById('btn-add-expense').addEventListener('click', () => {
   document.getElementById('f-amount').value = '';
   document.getElementById('f-desc').value = '';
@@ -240,6 +297,9 @@ document.getElementById('btn-add-expense').addEventListener('click', () => {
   cuotasToggle.dataset.on = 'false';
   document.getElementById('f-cuotas-count-wrap').classList.add('hidden');
   document.getElementById('f-cuotas-count').value = 3;
+  splitToggle.dataset.on = 'false';
+  document.getElementById('f-split-count-wrap').classList.add('hidden');
+  document.getElementById('f-split-count').value = 2;
   openModal('modal-expense');
 });
 
@@ -251,8 +311,10 @@ document.getElementById('btn-save-expense').addEventListener('click', () => {
   const description = document.getElementById('f-desc').value.trim();
   const isCuotas = cuotasToggle.dataset.on === 'true';
   const cuotas = isCuotas ? Math.max(2, parseInt(document.getElementById('f-cuotas-count').value)||2) : 1;
+  const isSplit = splitToggle.dataset.on === 'true';
+  const splitCount = isSplit ? Math.max(2, parseInt(document.getElementById('f-split-count').value)||2) : 1;
 
-  state.expenses.push({ id: uid(), amount, date, category, method: selectedMethod, description, cuotas });
+  state.expenses.push({ id: uid(), amount, date, category, method: selectedMethod, description, cuotas, splitCount, splitSettled: false });
   saveState();
   closeModal('modal-expense');
   render();

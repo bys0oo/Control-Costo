@@ -77,6 +77,12 @@
       <div id="cuotas-list" class="cuotas-list"></div>
     </div>
 
+    <div id="owed-card" class="card hidden">
+      <h3>Por cobrar</h3>
+      <div id="owed-total-row" class="fixed-total-row"><span>Total que te deben</span><span id="owed-total-amount">$0</span></div>
+      <div id="owed-list" class="cuotas-list"></div>
+    </div>
+
     <div class="backup-row">
       <button id="btn-export" class="link-btn">Exportar respaldo</button>
       <span>·</span>
@@ -116,6 +122,17 @@
       <div id="f-cuotas-count-wrap" class="hidden">
         <label class="field-label">Número de cuotas</label>
         <input type="number" id="f-cuotas-count" min="2" value="3" class="input">
+      </div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-title">¿Vas a dividir este gasto?</div>
+          <div class="toggle-sub">Tú pagas el total, se calcula cuánto te deben</div>
+        </div>
+        <button id="f-split-toggle" class="switch" data-on="false"><span class="switch-knob"></span></button>
+      </div>
+      <div id="f-split-count-wrap" class="hidden">
+        <label class="field-label">Entre cuántas personas (incluyéndote)</label>
+        <input type="number" id="f-split-count" min="2" value="2" class="input">
       </div>
       <button id="btn-save-expense" class="btn btn-primary btn-block">Guardar gasto</button>
     </div>
