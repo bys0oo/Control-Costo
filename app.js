@@ -38,7 +38,8 @@ function portionInMonth(exp, ym){
 function billingStartYM(exp){
   const calendarYM = ymKey(exp.date);
   if(exp.method !== 'credito') return calendarYM;
-  let cutoff = state.billingCutoffDay || 19;
+  const DEFAULT_CUTOFF = 19; // respaldo silencioso solo para gastos sin tarjeta asignada
+  let cutoff = DEFAULT_CUTOFF;
   if(exp.cardId){
     const card = state.cards.find(c => c.id === exp.cardId);
     if(card) cutoff = effectiveCutoffForYM(card, calendarYM);
@@ -78,7 +79,7 @@ function billingRangeLabel(card, ym){
 }
 
 // ===== Estado =====
-let state = { expenses: [], fixedCosts: [], budgetGoal: 500000, billingCutoffDay: 19, cards: [] };
+let state = { expenses: [], fixedCosts: [], budgetGoal: 500000, cards: [] };
 let viewYM = ymKey(new Date());
 
 function loadState(){
@@ -472,14 +473,11 @@ document.getElementById('fixed-list').addEventListener('click', (e) => {
 // ===== Presupuesto =====
 document.getElementById('btn-settings').addEventListener('click', () => {
   document.getElementById('bg-amount').value = state.budgetGoal;
-  document.getElementById('bg-cutoff').value = state.billingCutoffDay || 19;
   openModal('modal-budget');
 });
 document.getElementById('btn-save-budget').addEventListener('click', () => {
   const v = parseFloat(document.getElementById('bg-amount').value) || 0;
-  const cutoff = Math.min(28, Math.max(1, parseInt(document.getElementById('bg-cutoff').value) || 19));
   state.budgetGoal = v;
-  state.billingCutoffDay = cutoff;
   saveState();
   closeModal('modal-budget');
   render();
