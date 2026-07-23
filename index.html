@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Control de Gastos</title>
+<meta name="theme-color" content="#1C2B22">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="offline-banner" class="offline-banner hidden">Sin conexión — tus datos se guardan igual en este dispositivo</div>
+
+  <div class="wrap">
+    <header class="app-header">
+      <div>
+        <h1>Control de Gastos</h1>
+        <p class="subtitle">Tu resumen mensual, sin sorpresas</p>
+      </div>
+    </header>
+
+    <div class="month-nav">
+      <button id="btn-prev-month" class="icon-btn">‹</button>
+      <div id="month-label" class="month-label">—</div>
+      <button id="btn-next-month" class="icon-btn">›</button>
+    </div>
+
+    <div class="receipt-card">
+      <div class="receipt-top">
+        <div class="receipt-label">Total gastado — <span id="receipt-month">—</span></div>
+        <div id="receipt-total" class="receipt-total">$0</div>
+        <div class="receipt-sub">
+          <span>Variables: <span id="total-variable">$0</span></span>
+          <span>·</span>
+          <span>Fijos: <span id="total-fijo">$0</span></span>
+        </div>
+      </div>
+      <div class="receipt-bottom">
+        <div class="budget-row">
+          <span>Presupuesto: <span id="budget-label">$0</span></span>
+          <span id="budget-pct" class="budget-pct">0%</span>
+        </div>
+        <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
+        <div id="status-msg" class="status-msg"></div>
+      </div>
+    </div>
+    <div class="zigzag"></div>
+
+    <div class="actions-row">
+      <button id="btn-add-expense" class="btn btn-primary btn-block">+ Registrar gasto</button>
+      <div class="actions-row-secondary">
+        <button id="btn-fixed-costs" class="btn btn-secondary">↻ Costos fijos</button>
+        <button id="btn-settings" class="btn btn-secondary">⚙ Ajustes</button>
+      </div>
+    </div>
+
+    <div class="charts-grid">
+      <div class="card">
+        <h3>Por categoría</h3>
+        <div id="pie-wrap" class="pie-wrap"></div>
+        <div id="pie-legend" class="pie-legend"></div>
+      </div>
+      <div class="card">
+        <h3>3 meses atrás · actual · 3 proyectados</h3>
+        <div id="bar-chart" class="bar-chart"></div>
+        <div class="chart-note">* proyectado: fijos + cuotas ya comprometidas</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Movimientos del mes</h3>
+      <div id="transactions-list" class="transactions-list"></div>
+    </div>
+
+    <div id="cuotas-card" class="card hidden">
+      <h3>Cuotas comprometidas a futuro</h3>
+      <div id="cuotas-list" class="cuotas-list"></div>
+    </div>
+
+    <div id="owed-card" class="card hidden">
+      <h3>Por cobrar</h3>
+      <div id="owed-total-row" class="fixed-total-row"><span>Total que te deben</span><span id="owed-total-amount">$0</span></div>
+      <div id="owed-list" class="cuotas-list"></div>
+    </div>
+
+    <div class="backup-row">
+      <button id="btn-export" class="link-btn">Exportar respaldo</button>
+      <span>·</span>
+      <button id="btn-import" class="link-btn">Importar respaldo</button>
+      <input type="file" id="import-file" accept="application/json" class="hidden">
+    </div>
+    <p class="footer-note">Tus datos se guardan en este dispositivo. Usa "Exportar respaldo" para pasarlos a otro equipo.</p>
+  </div>
+
+  <!-- Modal: registrar gasto -->
+  <div id="modal-expense" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header"><h2 id="expense-modal-title">Registrar gasto</h2><button class="icon-btn modal-close" data-modal="modal-expense">✕</button></div>
+      <label class="field-label">Monto total (CLP)</label>
+      <input type="number" id="f-amount" inputmode="numeric" placeholder="15000" class="input input-mono input-lg">
+      <label class="field-label">Descripción</label>
+      <input type="text" id="f-desc" placeholder="Ej: Supermercado Líder" class="input">
+      <div class="two-col">
+        <div>
+          <label class="field-label">Fecha</label>
+          <input type="date" id="f-date" class="input">
+        </div>
+        <div>
+          <label class="field-label">Categoría</label>
+          <select id="f-category" class="input"></select>
+        </div>
+      </div>
+      <label class="field-label">Método de pago</label>
+      <div id="f-methods" class="methods-grid"></div>
+      <div id="f-card-wrap" class="hidden">
+        <label class="field-label">Tarjeta usada</label>
+        <select id="f-card" class="input"></select>
+        <div id="f-card-empty-note" class="toggle-sub hidden">No tienes tarjetas registradas — agrégalas en ⚙ Configuración → Tarjetas de crédito.</div>
+      </div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-title">¿Compra en cuotas?</div>
+          <div class="toggle-sub">Se proyecta sola el resto de los meses</div>
+        </div>
+        <button id="f-cuotas-toggle" class="switch" data-on="false"><span class="switch-knob"></span></button>
+      </div>
+      <div id="f-cuotas-count-wrap" class="hidden">
+        <label class="field-label">Número de cuotas</label>
+        <input type="number" id="f-cuotas-count" min="2" value="3" class="input">
+      </div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-title">¿Vas a dividir este gasto?</div>
+          <div class="toggle-sub">Tú pagas el total, se calcula cuánto te deben</div>
+        </div>
+        <button id="f-split-toggle" class="switch" data-on="false"><span class="switch-knob"></span></button>
+      </div>
+      <div id="f-split-count-wrap" class="hidden">
+        <label class="field-label">Entre cuántas personas (incluyéndote)</label>
+        <input type="number" id="f-split-count" min="2" value="2" class="input">
+      </div>
+      <button id="btn-save-expense" class="btn btn-primary btn-block">Guardar gasto</button>
+    </div>
+  </div>
+
+  <!-- Modal: costos fijos -->
+  <div id="modal-fixed" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header"><h2>Costos fijos mensuales</h2><button class="icon-btn modal-close" data-modal="modal-fixed">✕</button></div>
+      <div id="fixed-list" class="fixed-list"></div>
+      <div id="fixed-total-row" class="fixed-total-row hidden">
+        <span>Total fijo mensual activo</span><span id="fixed-total-amount">$0</span>
+      </div>
+      <div class="fixed-form">
+        <input type="text" id="ff-name" placeholder="Nombre (ej: Arriendo)" class="input">
+        <div class="two-col">
+          <input type="number" id="ff-amount" placeholder="Monto" class="input">
+          <select id="ff-category" class="input"></select>
+        </div>
+        <button id="btn-add-fixed" class="btn btn-primary btn-block">Añadir costo fijo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: configuración (incluye tarjetas de crédito) -->
+  <div id="modal-budget" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header"><h2>Configuración</h2><button class="icon-btn modal-close" data-modal="modal-budget">✕</button></div>
+      <label class="field-label">Meta de gasto mensual (CLP)</label>
+      <input type="number" id="bg-amount" class="input input-mono input-lg">
+
+      <div style="border-top:1px solid var(--line);margin-top:18px;padding-top:14px;">
+        <div class="field-label" style="margin-top:0;">Tarjetas de crédito</div>
+        <div id="cards-list" class="fixed-list"></div>
+        <div class="fixed-form">
+          <input type="text" id="cc-name" placeholder="Nombre (ej: Falabella, Santander)" class="input">
+          <div class="two-col">
+            <input type="number" id="cc-cutoff" min="1" max="28" placeholder="Día de corte" class="input">
+          </div>
+          <div id="cc-preview" class="toggle-sub hidden"></div>
+          <button id="btn-add-card" class="btn btn-secondary btn-block">Añadir tarjeta</button>
+        </div>
+      </div>
+
+      <button id="btn-save-budget" class="btn btn-primary btn-block">Guardar</button>
+    </div>
+  </div>
+
+<script src="app.js"></script>
+</body>
+</html>
