@@ -68,7 +68,9 @@ body{
   background-size:12px 12px;background-position:left bottom;background-repeat:repeat-x;
 }
 
-.actions-row{display:flex;gap:8px;margin:20px 0;}
+.actions-row{display:flex;flex-direction:column;gap:8px;margin:20px 0;}
+.actions-row-secondary{display:flex;gap:8px;}
+.actions-row-secondary .btn{flex:1;}
 .btn{border-radius:10px;font-size:14px;font-weight:600;padding:11px 16px;cursor:pointer;border:1px solid transparent;}
 .btn-primary{background:var(--ink);color:var(--paper);flex:1;}
 .btn-primary:hover{opacity:.9;}
