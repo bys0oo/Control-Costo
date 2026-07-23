@@ -113,6 +113,11 @@
       </div>
       <label class="field-label">Método de pago</label>
       <div id="f-methods" class="methods-grid"></div>
+      <div id="f-card-wrap" class="hidden">
+        <label class="field-label">Tarjeta usada</label>
+        <select id="f-card" class="input"></select>
+        <div id="f-card-empty-note" class="toggle-sub hidden">No tienes tarjetas registradas — agrégalas en ⚙ Configuración → Tarjetas de crédito.</div>
+      </div>
       <div class="toggle-row">
         <div>
           <div class="toggle-title">¿Compra en cuotas?</div>
@@ -161,10 +166,29 @@
   <!-- Modal: presupuesto -->
   <div id="modal-budget" class="modal-overlay hidden">
     <div class="modal">
-      <div class="modal-header"><h2>Presupuesto mensual</h2><button class="icon-btn modal-close" data-modal="modal-budget">✕</button></div>
+      <div class="modal-header"><h2>Configuración</h2><button class="icon-btn modal-close" data-modal="modal-budget">✕</button></div>
       <label class="field-label">Meta de gasto mensual (CLP)</label>
       <input type="number" id="bg-amount" class="input input-mono input-lg">
+      <label class="field-label">Día de corte / facturación de tu tarjeta de crédito</label>
+      <input type="number" id="bg-cutoff" min="1" max="28" class="input">
+      <div class="toggle-sub" style="margin-top:4px;">Ej: si tu tarjeta factura el 19, una compra en crédito hecha el día 21 se contará automáticamente en el mes siguiente. Si usas varias tarjetas con distinta fecha, regístralas abajo.</div>
+      <button id="btn-manage-cards" class="link-btn" style="margin-top:10px;display:block;">Gestionar tarjetas de crédito →</button>
       <button id="btn-save-budget" class="btn btn-primary btn-block">Guardar</button>
+    </div>
+  </div>
+
+  <!-- Modal: tarjetas de crédito -->
+  <div id="modal-cards" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header"><h2>Tarjetas de crédito</h2><button class="icon-btn modal-close" data-modal="modal-cards">✕</button></div>
+      <div id="cards-list" class="fixed-list"></div>
+      <div class="fixed-form">
+        <input type="text" id="cc-name" placeholder="Nombre (ej: Falabella, Santander)" class="input">
+        <div class="two-col">
+          <input type="number" id="cc-cutoff" min="1" max="28" placeholder="Día de corte" class="input">
+        </div>
+        <button id="btn-add-card" class="btn btn-primary btn-block">Añadir tarjeta</button>
+      </div>
     </div>
   </div>
 

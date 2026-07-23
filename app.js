@@ -27,9 +27,24 @@ function monthDiff(fromYM, toYM){
 }
 function portionInMonth(exp, ym){
   const count = exp.cuotas || 1;
-  const diff = monthDiff(ymKey(exp.date), ym);
+  const diff = monthDiff(billingStartYM(exp), ym);
   if(diff < 0 || diff >= count) return 0;
   return exp.amount / count;
+}
+// Para compras con tarjeta de crédito, si la compra fue después del día de corte,
+// se factura recién el mes siguiente (no en el mes calendario de la compra).
+// Si el gasto tiene una tarjeta específica asignada, se usa su día de corte;
+// si no, se usa el día de corte general de respaldo.
+function billingStartYM(exp){
+  const calendarYM = ymKey(exp.date);
+  if(exp.method !== 'credito') return calendarYM;
+  let cutoff = state.billingCutoffDay || 19;
+  if(exp.cardId){
+    const card = state.cards.find(c => c.id === exp.cardId);
+    if(card) cutoff = card.cutoffDay;
+  }
+  const day = new Date(exp.date).getDate();
+  return day > cutoff ? addMonthsToYM(calendarYM, 1) : calendarYM;
 }
 // Reparte una porción bruta (ya calculada por mes/cuota) entre las personas del gasto.
 // Devuelve la parte que efectivamente es "tuya" (cuenta para tu presupuesto).
@@ -44,7 +59,7 @@ function owedShareTotal(exp){
 }
 
 // ===== Estado =====
-let state = { expenses: [], fixedCosts: [], budgetGoal: 500000 };
+let state = { expenses: [], fixedCosts: [], budgetGoal: 500000, billingCutoffDay: 19, cards: [] };
 let viewYM = ymKey(new Date());
 
 function loadState(){
@@ -179,14 +194,18 @@ function renderTransactions(monthRows){
   }
   list.innerHTML = monthRows.map(e => {
     const method = METHODS.find(mm => mm.id === e.method) || METHODS[0];
-    const idx = monthDiff(ymKey(e.date), viewYM) + 1;
+    const idx = monthDiff(billingStartYM(e), viewYM) + 1;
     const cuotasTag = e.cuotas > 1 ? ` · cuota ${idx}/${e.cuotas}` : '';
     const splitTag = (e.splitCount > 1) ? ` · dividido ×${e.splitCount}${e.owedPortion > 0 ? ' (te deben '+fmtCLP(e.owedPortion)+')' : ''}` : '';
+    const billingYM = billingStartYM(e);
+    const shiftedTag = (e.method === 'credito' && billingYM !== ymKey(e.date)) ? ` · se factura en ${MONTH_NAMES[ymParts(billingYM).m-1]}` : '';
+    const card = e.cardId ? state.cards.find(c => c.id === e.cardId) : null;
+    const cardTag = card ? ` · ${escapeHtml(card.name)}` : '';
     return `<div class="tx-row" data-id="${e.id}">
       <div class="tx-icon">${method.icon}</div>
       <div class="tx-main">
         <div class="tx-desc">${escapeHtml(e.description || e.category)}</div>
-        <div class="tx-meta"><span style="color:${catColor(e.category)}">${e.category}</span><span>· ${new Date(e.date).toLocaleDateString('es-CL')}</span><span>${cuotasTag}${splitTag}</span></div>
+        <div class="tx-meta"><span style="color:${catColor(e.category)}">${e.category}</span><span>· ${new Date(e.date).toLocaleDateString('es-CL')}</span><span>${cuotasTag}${splitTag}${cardTag}${shiftedTag}</span></div>
       </div>
       <div class="tx-amount">${fmtCLP(e.portion)}</div>
       <button class="tx-delete" data-delete-expense="${e.id}">🗑</button>
@@ -223,7 +242,7 @@ function renderUpcomingCuotas(){
   state.expenses.forEach(e => {
     const count = e.cuotas || 1;
     if(count <= 1) return;
-    const startYM = ymKey(e.date);
+    const startYM = billingStartYM(e);
     for(let i=0;i<count;i++){
       const ym = addMonthsToYM(startYM, i);
       if(monthDiff(viewYM, ym) > 0){
@@ -284,7 +303,24 @@ methodsGrid.addEventListener('click', (e) => {
   if(!btn) return;
   selectedMethod = btn.dataset.method;
   methodsGrid.querySelectorAll('.method-btn').forEach(b => b.classList.toggle('active', b.dataset.method === selectedMethod));
+  updateCardWrapVisibility();
 });
+
+function populateCardSelect(){
+  const sel = document.getElementById('f-card');
+  sel.innerHTML = state.cards.map(c => `<option value="${c.id}">${escapeHtml(c.name)} (corte día ${c.cutoffDay})</option>`).join('');
+}
+function updateCardWrapVisibility(){
+  const wrap = document.getElementById('f-card-wrap');
+  const emptyNote = document.getElementById('f-card-empty-note');
+  const sel = document.getElementById('f-card');
+  if(selectedMethod !== 'credito'){ wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+  populateCardSelect();
+  const hasCards = state.cards.length > 0;
+  sel.classList.toggle('hidden', !hasCards);
+  emptyNote.classList.toggle('hidden', hasCards);
+}
 
 const cuotasToggle = document.getElementById('f-cuotas-toggle');
 cuotasToggle.addEventListener('click', () => {
@@ -307,6 +343,7 @@ document.getElementById('btn-add-expense').addEventListener('click', () => {
   document.getElementById('f-category').value = CATEGORIES[0];
   selectedMethod = 'credito';
   methodsGrid.querySelectorAll('.method-btn').forEach(b => b.classList.toggle('active', b.dataset.method === selectedMethod));
+  updateCardWrapVisibility();
   cuotasToggle.dataset.on = 'false';
   document.getElementById('f-cuotas-count-wrap').classList.add('hidden');
   document.getElementById('f-cuotas-count').value = 3;
@@ -326,8 +363,10 @@ document.getElementById('btn-save-expense').addEventListener('click', () => {
   const cuotas = isCuotas ? Math.max(2, parseInt(document.getElementById('f-cuotas-count').value)||2) : 1;
   const isSplit = splitToggle.dataset.on === 'true';
   const splitCount = isSplit ? Math.max(2, parseInt(document.getElementById('f-split-count').value)||2) : 1;
+  const cardSel = document.getElementById('f-card');
+  const cardId = (selectedMethod === 'credito' && state.cards.length > 0) ? cardSel.value : null;
 
-  state.expenses.push({ id: uid(), amount, date, category, method: selectedMethod, description, cuotas, splitCount, splitSettled: false });
+  state.expenses.push({ id: uid(), amount, date, category, method: selectedMethod, description, cuotas, splitCount, splitSettled: false, cardId });
   saveState();
   closeModal('modal-expense');
   render();
@@ -414,14 +453,64 @@ document.getElementById('fixed-list').addEventListener('click', (e) => {
 // ===== Presupuesto =====
 document.getElementById('btn-settings').addEventListener('click', () => {
   document.getElementById('bg-amount').value = state.budgetGoal;
+  document.getElementById('bg-cutoff').value = state.billingCutoffDay || 19;
   openModal('modal-budget');
 });
 document.getElementById('btn-save-budget').addEventListener('click', () => {
   const v = parseFloat(document.getElementById('bg-amount').value) || 0;
+  const cutoff = Math.min(28, Math.max(1, parseInt(document.getElementById('bg-cutoff').value) || 19));
   state.budgetGoal = v;
+  state.billingCutoffDay = cutoff;
   saveState();
   closeModal('modal-budget');
   render();
+});
+
+// ===== Tarjetas de crédito =====
+function renderCardsList(){
+  const list = document.getElementById('cards-list');
+  if(state.cards.length === 0){
+    list.innerHTML = `<div class="empty-note">Sin tarjetas registradas todavía. Cada una puede tener su propio día de corte.</div>`;
+    return;
+  }
+  list.innerHTML = state.cards.map(c => `
+    <div class="fixed-row" data-id="${c.id}">
+      <div class="fixed-main">
+        <div class="fixed-name">${escapeHtml(c.name)}</div>
+        <div class="fixed-cat">Corte día ${c.cutoffDay}</div>
+      </div>
+      <button class="fixed-delete" data-delete-card="${c.id}">🗑</button>
+    </div>
+  `).join('');
+}
+
+document.getElementById('btn-manage-cards').addEventListener('click', () => {
+  document.getElementById('cc-name').value = '';
+  document.getElementById('cc-cutoff').value = '';
+  renderCardsList();
+  closeModal('modal-budget');
+  openModal('modal-cards');
+});
+
+document.getElementById('btn-add-card').addEventListener('click', () => {
+  const name = document.getElementById('cc-name').value.trim();
+  const cutoffDay = Math.min(28, Math.max(1, parseInt(document.getElementById('cc-cutoff').value) || 0));
+  if(!name || !cutoffDay){ alert('Completa el nombre y el día de corte (1-28).'); return; }
+  state.cards.push({ id: uid(), name, cutoffDay });
+  saveState();
+  document.getElementById('cc-name').value = '';
+  document.getElementById('cc-cutoff').value = '';
+  renderCardsList();
+});
+
+document.getElementById('cards-list').addEventListener('click', (e) => {
+  const delBtn = e.target.closest('[data-delete-card]');
+  if(!delBtn) return;
+  const id = delBtn.dataset.deleteCard;
+  if(!confirm('¿Eliminar esta tarjeta? Los gastos ya registrados con ella mantendrán sus datos, pero ya no podrás seleccionarla para nuevos gastos.')) return;
+  state.cards = state.cards.filter(c => c.id !== id);
+  saveState();
+  renderCardsList();
 });
 
 // ===== Navegación de mes =====
