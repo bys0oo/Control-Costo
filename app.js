@@ -135,25 +135,38 @@ function renderPie(monthRows, activeFixed){
   ).join('');
 }
 
+function fmtCompact(n){
+  const v = Math.round(n||0);
+  const abs = Math.abs(v);
+  if(abs >= 1000000) return (v/1000000).toFixed(v % 1000000 === 0 ? 0 : 1) + 'M';
+  if(abs >= 1000) return Math.round(v/1000) + 'k';
+  return String(v);
+}
+
 function renderBarChart(){
   const bars = [];
-  for(let i=5; i>=0; i--){
-    const ym = addMonthsToYM(viewYM, -i);
+  for(let i=-3; i<=3; i++){
+    const ym = addMonthsToYM(viewYM, i);
+    // La proyección usa exactamente los mismos datos ya conocidos: costos fijos activos
+    // y cuotas ya comprometidas (portionInMonth funciona igual para meses futuros).
     const eTotal = state.expenses.reduce((s,e) => s + myShare(e, portionInMonth(e, ym)), 0);
     const fTotal = state.fixedCosts.filter(f=>f.active).reduce((s,f)=>s+f.amount,0);
     const {m} = ymParts(ym);
-    bars.push({ym, label: MONTH_NAMES[m-1].slice(0,3), total: eTotal+fTotal});
+    bars.push({ym, label: MONTH_NAMES[m-1].slice(0,3), total: eTotal+fTotal, future: i > 0});
   }
   const max = Math.max(1, ...bars.map(b=>b.total));
   const chart = document.getElementById('bar-chart');
   chart.innerHTML = bars.map(b => {
-    const h = Math.max(2, Math.round((b.total/max)*120));
-    const cls = b.ym === viewYM ? 'bar-fill current' : 'bar-fill';
+    const h = Math.max(2, Math.round((b.total/max)*100));
+    let cls = 'bar-fill';
+    if(b.ym === viewYM) cls += ' current';
+    else if(b.future) cls += ' future';
     return `<div class="bar-col" title="${fmtCLP(b.total)}">
+      <div class="bar-value">${fmtCompact(b.total)}</div>
       <div style="height:100%;display:flex;align-items:flex-end;width:100%;">
         <div class="${cls}" style="height:${h}px;"></div>
       </div>
-      <div class="bar-label">${b.label}</div>
+      <div class="bar-label">${b.label}${b.future ? ' *' : ''}</div>
     </div>`;
   }).join('');
 }

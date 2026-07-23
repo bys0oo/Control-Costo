@@ -1,4 +1,4 @@
-const CACHE_NAME = 'control-gastos-v2';
+const CACHE_NAME = 'control-gastos-v4';
 const APP_SHELL = [
   './',
   './index.html',
@@ -25,21 +25,19 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Estrategia: cache-first con actualización en segundo plano (stale-while-revalidate)
+// Estrategia: red primero (para ver cambios al instante), y si no hay
+// internet, usa la copia guardada en caché para que la app siga funcionando.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return networkResponse;
-        })
-        .catch(() => cached);
-      return cached || fetchPromise;
-    })
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const clone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return networkResponse;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
