@@ -169,5 +169,6 @@ body{
 .fixed-amount{font-family:ui-monospace,monospace;font-size:14px;font-weight:600;flex-shrink:0;}
 .fixed-delete{background:none;border:none;color:var(--ink-soft);cursor:pointer;flex-shrink:0;}
 .fixed-total-row{display:flex;justify-content:space-between;font-size:12px;font-weight:600;color:var(--ink-soft);padding-top:10px;border-top:1px dashed var(--line);margin-bottom:14px;}
+.card-month-block{border-top:1px dashed var(--line);padding:8px 0 12px 0;margin-bottom:6px;}
 .fixed-form{border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:8px;}
 .fixed-form .two-col{margin-top:0;}

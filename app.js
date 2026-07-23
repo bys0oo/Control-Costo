@@ -41,7 +41,7 @@ function billingStartYM(exp){
   let cutoff = state.billingCutoffDay || 19;
   if(exp.cardId){
     const card = state.cards.find(c => c.id === exp.cardId);
-    if(card) cutoff = card.cutoffDay;
+    if(card) cutoff = effectiveCutoffForYM(card, calendarYM);
   }
   const day = new Date(exp.date).getDate();
   return day > cutoff ? addMonthsToYM(calendarYM, 1) : calendarYM;
@@ -56,6 +56,25 @@ function owedShareTotal(exp){
   const n = exp.splitCount || 1;
   if(n <= 1) return 0;
   return exp.amount * (n - 1) / n;
+}
+
+function ymLabel(ym){ const {y,m} = ymParts(ym); return `${MONTH_NAMES[m-1]} ${y}`; }
+
+// Día de corte efectivo de una tarjeta para un mes calendario específico:
+// usa el ajuste manual de ese mes si existe, si no el día de corte por defecto de la tarjeta.
+function effectiveCutoffForYM(card, ym){
+  if(card.overrides && Object.prototype.hasOwnProperty.call(card.overrides, ym)) return card.overrides[ym];
+  return card.cutoffDay;
+}
+
+// Rango de fechas que efectivamente cae dentro de la facturación de "ym" para esa tarjeta.
+function billingRangeLabel(card, ym){
+  const prevYM = addMonthsToYM(ym, -1);
+  const prevCutoff = effectiveCutoffForYM(card, prevYM);
+  const thisCutoff = effectiveCutoffForYM(card, ym);
+  const {m: pm} = ymParts(prevYM);
+  const {m: tm} = ymParts(ym);
+  return `${prevCutoff + 1} de ${MONTH_NAMES[pm-1]} al ${thisCutoff} de ${MONTH_NAMES[tm-1]}`;
 }
 
 // ===== Estado =====
@@ -473,15 +492,28 @@ function renderCardsList(){
     list.innerHTML = `<div class="empty-note">Sin tarjetas registradas todavía. Cada una puede tener su propio día de corte.</div>`;
     return;
   }
-  list.innerHTML = state.cards.map(c => `
+  list.innerHTML = state.cards.map(c => {
+    const effCutoff = effectiveCutoffForYM(c, viewYM);
+    const hasOverride = c.overrides && Object.prototype.hasOwnProperty.call(c.overrides, viewYM);
+    const range = billingRangeLabel(c, viewYM);
+    return `
     <div class="fixed-row" data-id="${c.id}">
       <div class="fixed-main">
         <div class="fixed-name">${escapeHtml(c.name)}</div>
-        <div class="fixed-cat">Corte día ${c.cutoffDay}</div>
+        <div class="fixed-cat">Corte por defecto: día ${c.cutoffDay}</div>
       </div>
       <button class="fixed-delete" data-delete-card="${c.id}">🗑</button>
     </div>
-  `).join('');
+    <div class="card-month-block">
+      <div class="toggle-sub">Facturación de <b>${ymLabel(viewYM)}</b>: del ${range}${hasOverride ? ' <span style="color:var(--mustard);font-weight:600;">(ajustado)</span>' : ''}</div>
+      <div style="display:flex;gap:6px;margin-top:6px;align-items:center;">
+        <input type="number" class="input" style="flex:1;padding:6px 10px;" min="1" max="28" value="${effCutoff}" data-override-input="${c.id}">
+        <button class="link-btn" data-save-override="${c.id}">Guardar solo para este mes</button>
+      </div>
+      ${hasOverride ? `<button class="link-btn" data-clear-override="${c.id}" style="margin-top:4px;">Quitar ajuste de ${ymLabel(viewYM)}</button>` : ''}
+    </div>
+    `;
+  }).join('');
 }
 
 document.getElementById('btn-manage-cards').addEventListener('click', () => {
@@ -496,7 +528,7 @@ document.getElementById('btn-add-card').addEventListener('click', () => {
   const name = document.getElementById('cc-name').value.trim();
   const cutoffDay = Math.min(28, Math.max(1, parseInt(document.getElementById('cc-cutoff').value) || 0));
   if(!name || !cutoffDay){ alert('Completa el nombre y el día de corte (1-28).'); return; }
-  state.cards.push({ id: uid(), name, cutoffDay });
+  state.cards.push({ id: uid(), name, cutoffDay, overrides: {} });
   saveState();
   document.getElementById('cc-name').value = '';
   document.getElementById('cc-cutoff').value = '';
@@ -505,12 +537,44 @@ document.getElementById('btn-add-card').addEventListener('click', () => {
 
 document.getElementById('cards-list').addEventListener('click', (e) => {
   const delBtn = e.target.closest('[data-delete-card]');
-  if(!delBtn) return;
-  const id = delBtn.dataset.deleteCard;
-  if(!confirm('¿Eliminar esta tarjeta? Los gastos ya registrados con ella mantendrán sus datos, pero ya no podrás seleccionarla para nuevos gastos.')) return;
-  state.cards = state.cards.filter(c => c.id !== id);
-  saveState();
-  renderCardsList();
+  if(delBtn){
+    const id = delBtn.dataset.deleteCard;
+    if(!confirm('¿Eliminar esta tarjeta? Los gastos ya registrados con ella mantendrán sus datos, pero ya no podrás seleccionarla para nuevos gastos.')) return;
+    state.cards = state.cards.filter(c => c.id !== id);
+    saveState();
+    renderCardsList();
+    return;
+  }
+  const saveBtn = e.target.closest('[data-save-override]');
+  if(saveBtn){
+    const id = saveBtn.dataset.saveOverride;
+    const input = document.querySelector(`[data-override-input="${id}"]`);
+    const val = Math.min(28, Math.max(1, parseInt(input.value) || 0));
+    if(!val){ alert('Ingresa un día válido (1-28).'); return; }
+    state.cards = state.cards.map(c => {
+      if(c.id !== id) return c;
+      const overrides = { ...(c.overrides || {}) };
+      overrides[viewYM] = val;
+      return { ...c, overrides };
+    });
+    saveState();
+    renderCardsList();
+    render();
+    return;
+  }
+  const clearBtn = e.target.closest('[data-clear-override]');
+  if(clearBtn){
+    const id = clearBtn.dataset.clearOverride;
+    state.cards = state.cards.map(c => {
+      if(c.id !== id) return c;
+      const overrides = { ...(c.overrides || {}) };
+      delete overrides[viewYM];
+      return { ...c, overrides };
+    });
+    saveState();
+    renderCardsList();
+    render();
+  }
 });
 
 // ===== Navegación de mes =====
