@@ -517,6 +517,10 @@ document.getElementById('fixed-list').addEventListener('click', (e) => {
 // ===== Presupuesto =====
 document.getElementById('btn-settings').addEventListener('click', () => {
   document.getElementById('bg-amount').value = state.budgetGoal;
+  document.getElementById('cc-name').value = '';
+  document.getElementById('cc-cutoff').value = '';
+  document.getElementById('cc-preview').classList.add('hidden');
+  renderCardsList();
   openModal('modal-budget');
 });
 document.getElementById('btn-save-budget').addEventListener('click', () => {
@@ -558,12 +562,15 @@ function renderCardsList(){
   }).join('');
 }
 
-document.getElementById('btn-manage-cards').addEventListener('click', () => {
-  document.getElementById('cc-name').value = '';
-  document.getElementById('cc-cutoff').value = '';
-  renderCardsList();
-  closeModal('modal-budget');
-  openModal('modal-cards');
+// Vista previa en vivo del rango de facturación mientras se escribe el día de corte
+document.getElementById('cc-cutoff').addEventListener('input', () => {
+  const preview = document.getElementById('cc-preview');
+  const val = parseInt(document.getElementById('cc-cutoff').value);
+  if(!val || val < 1 || val > 28){ preview.classList.add('hidden'); return; }
+  const fakeCard = { cutoffDay: val, overrides: {} };
+  const range = billingRangeLabel(fakeCard, viewYM);
+  preview.textContent = `Con corte día ${val}: ${ymLabel(viewYM)} se factura del ${range}`;
+  preview.classList.remove('hidden');
 });
 
 document.getElementById('btn-add-card').addEventListener('click', () => {
@@ -574,6 +581,7 @@ document.getElementById('btn-add-card').addEventListener('click', () => {
   saveState();
   document.getElementById('cc-name').value = '';
   document.getElementById('cc-cutoff').value = '';
+  document.getElementById('cc-preview').classList.add('hidden');
   renderCardsList();
 });
 
