@@ -13,7 +13,18 @@ const STORAGE_KEY = 'gastos-app-data';
 function catColor(cat){ const i = CATEGORIES.indexOf(cat); return CAT_COLORS[i >= 0 ? i % CAT_COLORS.length : CAT_COLORS.length-1]; }
 function fmtCLP(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
 function uid(){ return Math.random().toString(36).slice(2) + Date.now().toString(36); }
-function ymKey(d){ const dt = new Date(d); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`; }
+// Convierte 'YYYY-MM-DD' en una fecha LOCAL (evita el corrimiento de un dia por UTC)
+function parseLocalDate(d){
+  if(d instanceof Date) return d;
+  const [y,m,day] = String(d).split('-').map(Number);
+  return new Date(y, (m||1)-1, day||1);
+}
+// Fecha de hoy en formato YYYY-MM-DD segun la hora local, no UTC
+function todayISO(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function ymKey(d){ const dt = parseLocalDate(d); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`; }
 function ymParts(k){ const [y,m] = k.split('-').map(Number); return {y,m}; }
 function addMonthsToYM(k,n){
   const {y,m} = ymParts(k);
@@ -44,7 +55,7 @@ function billingStartYM(exp){
     const card = state.cards.find(c => c.id === exp.cardId);
     if(card) cutoff = effectiveCutoffForYM(card, calendarYM);
   }
-  const day = new Date(exp.date).getDate();
+  const day = parseLocalDate(exp.date).getDate();
   return day > cutoff ? addMonthsToYM(calendarYM, 1) : calendarYM;
 }
 // Reparte una porción bruta (ya calculada por mes/cuota) entre las personas del gasto.
@@ -80,7 +91,8 @@ function billingRangeLabel(card, ym){
 
 // ===== Estado =====
 let state = { expenses: [], fixedCosts: [], budgetGoal: 500000, cards: [] };
-let viewYM = ymKey(new Date());
+const VIEW_KEY = 'gastos-app-view';
+let viewYM = localStorage.getItem(VIEW_KEY) || ymKey(new Date());
 let editingExpenseId = null;
 
 function loadState(){
@@ -108,7 +120,7 @@ function render(){
       return {...e, grossPortion: gross, portion: mine, owedPortion: gross - mine};
     })
     .filter(e => e.grossPortion > 0)
-    .sort((a,b) => new Date(b.date) - new Date(a.date));
+    .sort((a,b) => parseLocalDate(b.date) - parseLocalDate(a.date));
 
   const activeFixed = state.fixedCosts.filter(f => f.active);
   const fixedTotal = activeFixed.reduce((s,f) => s + f.amount, 0);
@@ -226,7 +238,7 @@ function renderTransactions(monthRows){
       <div class="tx-icon">${method.icon}</div>
       <div class="tx-main">
         <div class="tx-desc">${escapeHtml(e.description || e.category)}</div>
-        <div class="tx-meta"><span style="color:${catColor(e.category)}">${e.category}</span><span>· ${new Date(e.date).toLocaleDateString('es-CL')}</span><span>${cuotasTag}${splitTag}${cardTag}${shiftedTag}</span></div>
+        <div class="tx-meta"><span style="color:${catColor(e.category)}">${e.category}</span><span>· ${parseLocalDate(e.date).toLocaleDateString('es-CL')}</span><span>${cuotasTag}${splitTag}${cardTag}${shiftedTag}</span></div>
       </div>
       <div class="tx-amount">${fmtCLP(e.portion)}</div>
       <button class="tx-edit" data-edit-expense="${e.id}">✏️</button>
@@ -239,7 +251,7 @@ function renderOwed(){
   const pending = state.expenses
     .filter(e => e.splitCount > 1 && !e.splitSettled)
     .map(e => ({ id: e.id, desc: e.description || e.category, date: e.date, n: e.splitCount, owed: owedShareTotal(e) }))
-    .sort((a,b) => new Date(b.date) - new Date(a.date));
+    .sort((a,b) => parseLocalDate(b.date) - parseLocalDate(a.date));
 
   const card = document.getElementById('owed-card');
   if(pending.length === 0){ card.classList.add('hidden'); return; }
@@ -250,7 +262,7 @@ function renderOwed(){
 
   document.getElementById('owed-list').innerHTML = pending.map(p => `
     <div class="cuota-row" data-id="${p.id}" style="align-items:center;">
-      <span>${escapeHtml(p.desc)} · ${new Date(p.date).toLocaleDateString('es-CL')} (÷${p.n})</span>
+      <span>${escapeHtml(p.desc)} · ${parseLocalDate(p.date).toLocaleDateString('es-CL')} (÷${p.n})</span>
       <span style="display:flex;align-items:center;gap:8px;">
         <b>${fmtCLP(p.owed)}</b>
         <button class="link-btn" data-mark-paid="${p.id}">Marcar pagado</button>
@@ -364,7 +376,7 @@ document.getElementById('btn-add-expense').addEventListener('click', () => {
   document.getElementById('btn-save-expense').textContent = 'Guardar gasto';
   document.getElementById('f-amount').value = '';
   document.getElementById('f-desc').value = '';
-  document.getElementById('f-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('f-date').value = todayISO();
   document.getElementById('f-category').value = CATEGORIES[0];
   selectedMethod = 'credito';
   methodsGrid.querySelectorAll('.method-btn').forEach(b => b.classList.toggle('active', b.dataset.method === selectedMethod));
@@ -381,7 +393,7 @@ document.getElementById('btn-add-expense').addEventListener('click', () => {
 document.getElementById('btn-save-expense').addEventListener('click', () => {
   const amount = parseFloat(document.getElementById('f-amount').value);
   if(!amount || amount <= 0){ alert('Ingresa un monto válido.'); return; }
-  const date = document.getElementById('f-date').value || new Date().toISOString().slice(0,10);
+  const date = document.getElementById('f-date').value || todayISO();
   const category = document.getElementById('f-category').value;
   const description = document.getElementById('f-desc').value.trim();
   const isCuotas = cuotasToggle.dataset.on === 'true';
@@ -628,15 +640,16 @@ document.getElementById('cards-list').addEventListener('click', (e) => {
 });
 
 // ===== Navegación de mes =====
-document.getElementById('btn-prev-month').addEventListener('click', () => { viewYM = addMonthsToYM(viewYM, -1); render(); });
-document.getElementById('btn-next-month').addEventListener('click', () => { viewYM = addMonthsToYM(viewYM, 1); render(); });
+function setViewYM(k){ viewYM = k; try{ localStorage.setItem(VIEW_KEY, k); }catch(e){} render(); }
+document.getElementById('btn-prev-month').addEventListener('click', () => setViewYM(addMonthsToYM(viewYM, -1)));
+document.getElementById('btn-next-month').addEventListener('click', () => setViewYM(addMonthsToYM(viewYM, 1)));
 
 // ===== Respaldo (exportar / importar) =====
 document.getElementById('btn-export').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayISO();
   a.href = url;
   a.download = `respaldo-gastos-${today}.json`;
   a.click();
