@@ -151,6 +151,7 @@ function render(){
 
   renderPie(monthRows, activeFixed);
   renderBarChart();
+  renderMethodChart(monthRows);
   renderTransactions(monthRows);
   renderUpcomingCuotas();
   renderOwed();
@@ -215,6 +216,45 @@ function renderBarChart(){
         <div class="${cls}" style="height:${h}px;"></div>
       </div>
       <div class="bar-label">${b.label}${b.future ? ' *' : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+const METHOD_CHART_COLORS = ['#C08A2E','#3C7A55','#2E3A52','#B3402A','#7A6A9C','#4E8FA6','#A66B4E','#6B7A4E'];
+
+// Agrupa los gastos variables del mes por "bolsillo" de pago: efectivo/débito/wallet tal cual,
+// y crédito desglosado por tarjeta específica (o "Crédito (sin tarjeta)" si no se asignó ninguna).
+function renderMethodChart(monthRows){
+  const map = {}; // key -> {label, value}
+  monthRows.forEach(e => {
+    let key, label;
+    if(e.method === 'credito'){
+      const card = e.cardId ? state.cards.find(c => c.id === e.cardId) : null;
+      key = card ? 'card:' + card.id : 'credito-sin-tarjeta';
+      label = card ? card.name : 'Crédito (sin tarjeta)';
+    }else{
+      const m = METHODS.find(mm => mm.id === e.method) || METHODS[0];
+      key = m.id;
+      label = m.label;
+    }
+    if(!map[key]) map[key] = {label, value:0};
+    map[key].value += e.portion;
+  });
+
+  const entries = Object.values(map).sort((a,b) => b.value - a.value);
+  const wrap = document.getElementById('method-chart');
+  if(entries.length === 0){
+    wrap.innerHTML = '<div class="empty-note">Sin gastos este mes todavía.</div>';
+    return;
+  }
+  const max = Math.max(1, ...entries.map(e => e.value));
+  wrap.innerHTML = entries.map((e,i) => {
+    const color = METHOD_CHART_COLORS[i % METHOD_CHART_COLORS.length];
+    const pct = Math.max(3, Math.round((e.value/max)*100));
+    return `<div class="method-row">
+      <div class="method-label" title="${escapeHtml(e.label)}"><span class="legend-dot" style="background:${color}"></span>${escapeHtml(e.label)}</div>
+      <div class="method-track"><div class="method-fill" style="width:${pct}%;background:${color};"></div></div>
+      <div class="method-amount">${fmtCLP(e.value)}</div>
     </div>`;
   }).join('');
 }

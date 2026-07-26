@@ -100,6 +100,13 @@ body{
 .bar-label{font-size:10px;color:var(--ink-soft);margin-top:6px;}
 .chart-note{font-size:10px;color:var(--ink-soft);text-align:center;margin-top:8px;}
 
+.method-bars{display:flex;flex-direction:column;gap:10px;}
+.method-row{display:flex;align-items:center;gap:10px;}
+.method-label{font-size:12px;color:var(--ink);width:108px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:5px;}
+.method-track{flex:1;height:14px;background:var(--paper);border-radius:99px;overflow:hidden;}
+.method-fill{height:100%;border-radius:99px;min-width:3px;}
+.method-amount{font-family:ui-monospace,monospace;font-size:12px;font-weight:600;width:78px;text-align:right;flex-shrink:0;}
+
 .transactions-list{display:flex;flex-direction:column;}
 .tx-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--paper);}
 .tx-row:last-child{border-bottom:none;}
