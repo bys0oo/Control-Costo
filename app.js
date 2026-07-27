@@ -56,7 +56,7 @@ function billingStartYM(exp){
   let cutoff = DEFAULT_CUTOFF;
   if(exp.cardId){
     const card = state.cards.find(c => c.id === exp.cardId);
-    if(card) cutoff = effectiveCutoffForYM(card, calendarYM);
+    if(card) cutoff = effectivePeriodForYM(card, calendarYM).endDay;
   }
   const day = parseLocalDate(exp.date).getDate();
   return day > cutoff ? addMonthsToYM(calendarYM, 1) : calendarYM;
@@ -75,21 +75,26 @@ function owedShareTotal(exp){
 
 function ymLabel(ym){ const {y,m} = ymParts(ym); return `${MONTH_NAMES[m-1]} ${y}`; }
 
-// Día de corte efectivo de una tarjeta para un mes calendario específico:
-// usa el ajuste manual de ese mes si existe, si no el día de corte por defecto de la tarjeta.
-function effectiveCutoffForYM(card, ym){
+// Periodo de facturación efectivo (día de inicio y día de término) de una tarjeta
+// para un mes calendario específico: usa el ajuste manual de ese mes si existe,
+// si no el periodo por defecto de la tarjeta.
+function effectivePeriodForYM(card, ym){
   if(card.overrides && Object.prototype.hasOwnProperty.call(card.overrides, ym)) return card.overrides[ym];
-  return card.cutoffDay;
+  return { startDay: card.startDay, endDay: card.endDay };
 }
 
 // Rango de fechas que efectivamente cae dentro de la facturación de "ym" para esa tarjeta.
+// Si el día de inicio es mayor que el día de término, el periodo cruza desde el mes anterior
+// (ej: del 20 de un mes al 19 del siguiente). Si no, el periodo cae dentro del mismo mes.
 function billingRangeLabel(card, ym){
-  const prevYM = addMonthsToYM(ym, -1);
-  const prevCutoff = effectiveCutoffForYM(card, prevYM);
-  const thisCutoff = effectiveCutoffForYM(card, ym);
-  const {m: pm} = ymParts(prevYM);
+  const { startDay, endDay } = effectivePeriodForYM(card, ym);
   const {m: tm} = ymParts(ym);
-  return `${prevCutoff + 1} de ${MONTH_NAMES[pm-1]} al ${thisCutoff} de ${MONTH_NAMES[tm-1]}`;
+  if(startDay > endDay){
+    const prevYM = addMonthsToYM(ym, -1);
+    const {m: pm} = ymParts(prevYM);
+    return `${startDay} de ${MONTH_NAMES[pm-1]} al ${endDay} de ${MONTH_NAMES[tm-1]}`;
+  }
+  return `${startDay} al ${endDay} de ${MONTH_NAMES[tm-1]}`;
 }
 
 // ===== Estado =====
@@ -98,11 +103,33 @@ const VIEW_KEY = 'gastos-app-view';
 let viewYM = localStorage.getItem(VIEW_KEY) || ymKey(new Date());
 let editingExpenseId = null;
 
+// Tarjetas antiguas solo tenían un "día de corte" único; el inicio del periodo se asumía
+// como el día siguiente al corte del mes anterior. Migramos eso a startDay/endDay explícitos.
+function migrateCards(cards){
+  return (cards||[]).map(c => {
+    if(c.startDay && c.endDay) return c; // ya migrada
+    const endDay = c.cutoffDay || 19;
+    const startDay = endDay >= 28 ? 1 : endDay + 1;
+    const overrides = {};
+    Object.keys(c.overrides || {}).forEach(ym => {
+      const ov = c.overrides[ym];
+      if(typeof ov === 'number'){
+        const ovStart = ov >= 28 ? 1 : ov + 1;
+        overrides[ym] = { startDay: ovStart, endDay: ov };
+      } else {
+        overrides[ym] = ov;
+      }
+    });
+    const { cutoffDay, ...rest } = c;
+    return { ...rest, startDay, endDay, overrides };
+  });
+}
 function loadState(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
     if(raw) state = JSON.parse(raw);
     if(!state.cards) state.cards = [];
+    state.cards = migrateCards(state.cards);
     state.expenses = migrateExpenseMethods(state.expenses);
   }catch(e){ console.error('Error leyendo datos guardados', e); }
 }
@@ -387,7 +414,7 @@ methodsGrid.addEventListener('click', (e) => {
 
 function populateCardSelect(){
   const sel = document.getElementById('f-card');
-  sel.innerHTML = state.cards.map(c => `<option value="${c.id}">${escapeHtml(c.name)} (corte día ${c.cutoffDay})</option>`).join('');
+  sel.innerHTML = state.cards.map(c => `<option value="${c.id}">${escapeHtml(c.name)} (${c.startDay} al ${c.endDay})</option>`).join('');
 }
 function updateCardWrapVisibility(){
   const wrap = document.getElementById('f-card-wrap');
@@ -575,7 +602,8 @@ document.getElementById('fixed-list').addEventListener('click', (e) => {
 document.getElementById('btn-settings').addEventListener('click', () => {
   document.getElementById('bg-amount').value = state.budgetGoal;
   document.getElementById('cc-name').value = '';
-  document.getElementById('cc-cutoff').value = '';
+  document.getElementById('cc-start').value = '';
+  document.getElementById('cc-end').value = '';
   document.getElementById('cc-preview').classList.add('hidden');
   renderCardsList();
   openModal('modal-budget');
@@ -592,52 +620,58 @@ document.getElementById('btn-save-budget').addEventListener('click', () => {
 function renderCardsList(){
   const list = document.getElementById('cards-list');
   if(state.cards.length === 0){
-    list.innerHTML = `<div class="empty-note">Sin tarjetas registradas todavía. Cada una puede tener su propio día de corte.</div>`;
+    list.innerHTML = `<div class="empty-note">Sin tarjetas registradas todavía. Cada una puede tener su propio periodo de facturación.</div>`;
     return;
   }
   list.innerHTML = state.cards.map(c => {
-    const effCutoff = effectiveCutoffForYM(c, viewYM);
+    const eff = effectivePeriodForYM(c, viewYM);
     const hasOverride = c.overrides && Object.prototype.hasOwnProperty.call(c.overrides, viewYM);
     const range = billingRangeLabel(c, viewYM);
     return `
     <div class="fixed-row" data-id="${c.id}">
       <div class="fixed-main">
         <div class="fixed-name">${escapeHtml(c.name)}</div>
-        <div class="fixed-cat">Corte por defecto: día ${c.cutoffDay}</div>
+        <div class="fixed-cat">Periodo por defecto: día ${c.startDay} al día ${c.endDay}</div>
       </div>
       <button class="fixed-delete" data-delete-card="${c.id}">🗑</button>
     </div>
     <div class="card-month-block">
       <div class="toggle-sub">Facturación de <b>${ymLabel(viewYM)}</b>: del ${range}${hasOverride ? ' <span style="color:var(--mustard);font-weight:600;">(ajustado)</span>' : ''}</div>
       <div style="display:flex;gap:6px;margin-top:6px;align-items:center;">
-        <input type="number" class="input" style="flex:1;padding:6px 10px;" min="1" max="28" value="${effCutoff}" data-override-input="${c.id}">
-        <button class="link-btn" data-save-override="${c.id}">Guardar solo para este mes</button>
+        <input type="number" class="input" style="flex:1;padding:6px 10px;" min="1" max="28" value="${eff.startDay}" placeholder="Inicio" data-override-start="${c.id}">
+        <input type="number" class="input" style="flex:1;padding:6px 10px;" min="1" max="28" value="${eff.endDay}" placeholder="Término" data-override-end="${c.id}">
       </div>
+      <button class="link-btn" data-save-override="${c.id}" style="margin-top:4px;">Guardar solo para este mes</button>
       ${hasOverride ? `<button class="link-btn" data-clear-override="${c.id}" style="margin-top:4px;">Quitar ajuste de ${ymLabel(viewYM)}</button>` : ''}
     </div>
     `;
   }).join('');
 }
 
-// Vista previa en vivo del rango de facturación mientras se escribe el día de corte
-document.getElementById('cc-cutoff').addEventListener('input', () => {
+// Vista previa en vivo del rango de facturación mientras se escriben los días de inicio/término
+function updateCardPreview(){
   const preview = document.getElementById('cc-preview');
-  const val = parseInt(document.getElementById('cc-cutoff').value);
-  if(!val || val < 1 || val > 28){ preview.classList.add('hidden'); return; }
-  const fakeCard = { cutoffDay: val, overrides: {} };
+  const startVal = parseInt(document.getElementById('cc-start').value);
+  const endVal = parseInt(document.getElementById('cc-end').value);
+  if(!startVal || !endVal || startVal < 1 || startVal > 28 || endVal < 1 || endVal > 28){ preview.classList.add('hidden'); return; }
+  const fakeCard = { startDay: startVal, endDay: endVal, overrides: {} };
   const range = billingRangeLabel(fakeCard, viewYM);
-  preview.textContent = `Con corte día ${val}: ${ymLabel(viewYM)} se factura del ${range}`;
+  preview.textContent = `Con ese periodo: ${ymLabel(viewYM)} se factura del ${range}`;
   preview.classList.remove('hidden');
-});
+}
+document.getElementById('cc-start').addEventListener('input', updateCardPreview);
+document.getElementById('cc-end').addEventListener('input', updateCardPreview);
 
 document.getElementById('btn-add-card').addEventListener('click', () => {
   const name = document.getElementById('cc-name').value.trim();
-  const cutoffDay = Math.min(28, Math.max(1, parseInt(document.getElementById('cc-cutoff').value) || 0));
-  if(!name || !cutoffDay){ alert('Completa el nombre y el día de corte (1-28).'); return; }
-  state.cards.push({ id: uid(), name, cutoffDay, overrides: {} });
+  const startDay = Math.min(28, Math.max(1, parseInt(document.getElementById('cc-start').value) || 0));
+  const endDay = Math.min(28, Math.max(1, parseInt(document.getElementById('cc-end').value) || 0));
+  if(!name || !startDay || !endDay){ alert('Completa el nombre, el día de inicio y el día de término (1-28).'); return; }
+  state.cards.push({ id: uid(), name, startDay, endDay, overrides: {} });
   saveState();
   document.getElementById('cc-name').value = '';
-  document.getElementById('cc-cutoff').value = '';
+  document.getElementById('cc-start').value = '';
+  document.getElementById('cc-end').value = '';
   document.getElementById('cc-preview').classList.add('hidden');
   renderCardsList();
 });
@@ -655,13 +689,15 @@ document.getElementById('cards-list').addEventListener('click', (e) => {
   const saveBtn = e.target.closest('[data-save-override]');
   if(saveBtn){
     const id = saveBtn.dataset.saveOverride;
-    const input = document.querySelector(`[data-override-input="${id}"]`);
-    const val = Math.min(28, Math.max(1, parseInt(input.value) || 0));
-    if(!val){ alert('Ingresa un día válido (1-28).'); return; }
+    const startInput = document.querySelector(`[data-override-start="${id}"]`);
+    const endInput = document.querySelector(`[data-override-end="${id}"]`);
+    const startDay = Math.min(28, Math.max(1, parseInt(startInput.value) || 0));
+    const endDay = Math.min(28, Math.max(1, parseInt(endInput.value) || 0));
+    if(!startDay || !endDay){ alert('Ingresa un día de inicio y de término válidos (1-28).'); return; }
     state.cards = state.cards.map(c => {
       if(c.id !== id) return c;
       const overrides = { ...(c.overrides || {}) };
-      overrides[viewYM] = val;
+      overrides[viewYM] = { startDay, endDay };
       return { ...c, overrides };
     });
     saveState();
