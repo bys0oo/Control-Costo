@@ -2,11 +2,14 @@
 const CATEGORIES = ['Comida','Transporte','Entretenimiento','Salud','Hogar','Educación','Ropa','Suscripciones','Otros'];
 const CAT_COLORS = ['#C08A2E','#3C7A55','#2E3A52','#B3402A','#7A6A9C','#4E8FA6','#A66B4E','#6B7A4E','#8A8A8A'];
 const METHODS = [
-  {id:'efectivo', label:'Efectivo', icon:'💵'},
-  {id:'debito', label:'Débito', icon:'💳'},
+  {id:'efectivo', label:'Efectivo/Débito', icon:'💵'},
   {id:'credito', label:'Crédito', icon:'💳'},
-  {id:'wallet', label:'Wallet', icon:'📱'},
 ];
+// Métodos antiguos que ya no existen como opción propia: se fusionan a 'efectivo' al cargar los datos.
+const LEGACY_METHOD_MAP = { debito: 'efectivo', wallet: 'efectivo' };
+function migrateExpenseMethods(expenses){
+  return (expenses||[]).map(e => LEGACY_METHOD_MAP[e.method] ? {...e, method: LEGACY_METHOD_MAP[e.method]} : e);
+}
 const MONTH_NAMES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const STORAGE_KEY = 'gastos-app-data';
 
@@ -99,6 +102,8 @@ function loadState(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
     if(raw) state = JSON.parse(raw);
+    if(!state.cards) state.cards = [];
+    state.expenses = migrateExpenseMethods(state.expenses);
   }catch(e){ console.error('Error leyendo datos guardados', e); }
 }
 function saveState(){
@@ -222,7 +227,7 @@ function renderBarChart(){
 
 const METHOD_CHART_COLORS = ['#C08A2E','#3C7A55','#2E3A52','#B3402A','#7A6A9C','#4E8FA6','#A66B4E','#6B7A4E'];
 
-// Agrupa los gastos variables del mes por "bolsillo" de pago: efectivo/débito/wallet tal cual,
+// Agrupa los gastos variables del mes por "bolsillo" de pago: efectivo/débito tal cual,
 // y crédito desglosado por tarjeta específica (o "Crédito (sin tarjeta)" si no se asignó ninguna).
 function renderMethodChart(monthRows){
   const map = {}; // key -> {label, value}
@@ -707,7 +712,12 @@ document.getElementById('import-file').addEventListener('change', (e) => {
       const parsed = JSON.parse(reader.result);
       if(!parsed.expenses || !parsed.fixedCosts){ throw new Error('Formato inválido'); }
       if(confirm('Esto reemplazará los datos actuales de este dispositivo por los del respaldo. ¿Continuar?')){
-        state = { expenses: parsed.expenses||[], fixedCosts: parsed.fixedCosts||[], budgetGoal: parsed.budgetGoal||500000 };
+        state = {
+          expenses: migrateExpenseMethods(parsed.expenses||[]),
+          fixedCosts: parsed.fixedCosts||[],
+          budgetGoal: parsed.budgetGoal||500000,
+          cards: parsed.cards||[]
+        };
         saveState();
         render();
       }
